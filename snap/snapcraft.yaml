@@ -1,13 +1,20 @@
 name: neovide # you probably want to 'snapcraft register <name>'
-base: core20 # the base snap is the execution environment for this snap
-version: "0.12.0+git"
+title: Neovide
+base: core24 # the base snap is the execution environment for this snap
+version: "0.16.2+git"
 summary: The snappiest vim editor you are likely to find.
 description: |
   This is a simple graphical user interface for Neovim. Where possible there are some graphical improvements,
   but it should act functionally like the terminal UI.
+icon: assets/neovide.svg
+license: MIT
+website: https://neovide.dev/
+source-code: https://github.com/neovide/neovide
+issues: https://github.com/neovide/neovide/issues
+contact: https://github.com/neovide/neovide/discussions
 
 grade: stable # must be 'stable' to release into candidate/stable channels
-confinement: strict # use 'strict' once you have the right plugs and slots
+confinement: classic
 build-packages:
   - cmake
   - freeglut3-dev
@@ -22,7 +29,7 @@ parts:
   nvim:
     source: https://github.com/neovim/neovim.git
     override-pull: |
-      snapcraftctl pull
+      craftctl default
       branch="$(git tag -l --sort=version:refname | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/{print $0}' | tail -1)"
       git checkout --detach "tags/${branch}"
       major="$(awk '/NVIM_VERSION_MAJOR/{gsub(")","",$2); print $2}' CMakeLists.txt)"
@@ -34,34 +41,32 @@ parts:
         echo "Neovide requires Neovim 0.12+, but found ${VERSION}" >&2
         exit 1
       fi
-
-      snapcraftctl set-version "${VERSION}"
     plugin: make
     override-build: |
-      echo "Building on $SNAP_ARCH"
+      echo "Building on $CRAFT_ARCH_BUILD_FOR"
       set -x
-      case "$SNAP_ARCH" in
+      case "$CRAFT_ARCH_BUILD_FOR" in
         "arm64" | "ppc64el"  | "s390x")
-        make -j"${SNAPCRAFT_PARALLEL_BUILD_COUNT}" \
+        make -j"${CRAFT_PARALLEL_BUILD_COUNT}" \
           CMAKE_BUILD_TYPE=RelWithDebInfo \
           CMAKE_INSTALL_PREFIX=/usr \
           CMAKE_FLAGS=-DPREFER_LUA=ON \
           DEPS_CMAKE_FLAGS="-DUSE_BUNDLED_LUA=ON -DUSE_BUNDLED_LUAJIT=OFF"
         ;;
         *)
-        make -j"${SNAPCRAFT_PARALLEL_BUILD_COUNT}" \
+        make -j"${CRAFT_PARALLEL_BUILD_COUNT}" \
           CMAKE_BUILD_TYPE=RelWithDebInfo \
           CMAKE_INSTALL_PREFIX=/usr
         ;;
       esac
-      make DESTDIR="$SNAPCRAFT_PART_INSTALL" install
+      make DESTDIR="$CRAFT_PART_INSTALL" install
       # Fix Desktop file
       sed -i 's|^Exec=nvim|Exec=/snap/bin/nvim.nvim|' \
-        ${SNAPCRAFT_PART_INSTALL}/usr/share/applications/nvim.desktop
+        ${CRAFT_PART_INSTALL}/usr/share/applications/nvim.desktop
       sed -i 's|^TryExec=nvim|TryExec=/snap/bin/nvim.nvim|' \
-        ${SNAPCRAFT_PART_INSTALL}/usr/share/applications/nvim.desktop
+        ${CRAFT_PART_INSTALL}/usr/share/applications/nvim.desktop
       sed -i 's|^Icon=.*|Icon=${SNAP}/usr/share/icons/hicolor/128x128/apps/nvim.png|' \
-        ${SNAPCRAFT_PART_INSTALL}/usr/share/applications/nvim.desktop
+        ${CRAFT_PART_INSTALL}/usr/share/applications/nvim.desktop
     build-packages:
       - ninja-build
       - libtool
@@ -78,13 +83,15 @@ parts:
       - wget
     prime:
       - -usr/share/man
-  desktop-glib-only:
-    plugin: make
-    source: https://github.com/ubuntu/snapcraft-desktop-helpers.git
-    source-subdir: glib-only
   neovide:
     plugin: rust
     source: .
+    override-build: |
+      craftctl default
+      install -Dm644 assets/neovide.desktop "${CRAFT_PART_INSTALL}/usr/share/applications/neovide.desktop"
+      install -Dm644 assets/neovide.svg "${CRAFT_PART_INSTALL}/usr/share/icons/hicolor/scalable/apps/neovide.svg"
+      sed -i 's|^Icon=neovide|Icon=${SNAP}/meta/gui/icon.svg|' \
+        "${CRAFT_PART_INSTALL}/usr/share/applications/neovide.desktop"
     build-packages:
       - fontconfig
       - libfontconfig1-dev
@@ -93,13 +100,18 @@ parts:
     stage-packages:
       - libxkbcommon0
       - libxkbcommon-x11-0
-      - libegl1-mesa
-      - libgl1-mesa-glx
+      - xkb-data
+      - libwayland-client0
+      - libwayland-cursor0
+      - libwayland-egl1
+      - libegl1
+      - libegl-mesa0
+      - libgl1
+      - libglx-mesa0
       - fontconfig
       - fonts-noto
       - libfontconfig1
-      - libibus-1.0-5
-      - libpng16-16
+      - libpng16-16t64
       - libx11-6
       - libx11-xcb1
       - libxcursor1
@@ -108,15 +120,25 @@ parts:
       - locales-all
       - xdg-user-dirs
 
+lint:
+  ignore:
+    - gpu
+    - library:
+        - usr/lib/**/libEGL*.so*
+        - usr/lib/**/libGL*.so*
+        - usr/lib/**/libXcursor.so*
+        - usr/lib/**/libXi.so*
+        - usr/lib/**/libXrandr.so*
+        - usr/lib/**/libicu*.so*
+        - usr/lib/**/libvulkan.so*
+        - usr/lib/**/libwayland-*.so*
+        - usr/lib/**/libxkbcommon-x11.so*
+
 apps:
   neovide:
     command: bin/neovide
-    plugs:
-      - desktop
-      - desktop-legacy
-      - wayland
-      - unity7
-      - opengl
-      - x11
-    command-chain:
-      - bin/desktop-launch
+    desktop: usr/share/applications/neovide.desktop
+    environment:
+      XKB_CONFIG_ROOT: $SNAP/usr/share/X11/xkb
+      LIBGL_DRIVERS_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/dri
+      __EGL_VENDOR_LIBRARY_DIRS: $SNAP/usr/share/glvnd/egl_vendor.d
