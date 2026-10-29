@@ -87,6 +87,8 @@ parts:
     plugin: rust
     source: .
     override-build: |
+      rm -rf "${CRAFT_PART_BUILD}/src"
+      cp -a "${CRAFT_PROJECT_DIR}/src" "${CRAFT_PART_BUILD}/src"
       craftctl default
       install -Dm644 assets/neovide.desktop "${CRAFT_PART_INSTALL}/usr/share/applications/neovide.desktop"
       install -Dm644 assets/neovide.svg "${CRAFT_PART_INSTALL}/usr/share/icons/hicolor/scalable/apps/neovide.svg"
